@@ -186,9 +186,373 @@ These fixtures will live inside of `<app-name>/fixtures/` folder and
 are JSON, XML, or YAML files. When we run `./manage.py loaddata
 <app-name>`, these get dumped into the database.
 
+We'll do just that for the leads app:
+
+```javascript
+[
+    {
+        "model": "leads.lead",
+        "pk": 1,
+        "fields": {
+            "name": "Armin",
+            "email": "something@gmail.com",
+            "message": "I am looking for a Javascript mentor",
+            "created_at": "2018-02-14 00:00:00"
+        }
+    },
+    {
+        "model": "leads.lead",
+        "pk": 2,
+        "fields": {
+            "name": "Tom",
+            "email": "tomsomething@gmail.com",
+            "message": "I want to talk about a Python project",
+            "created_at": "2018-01-14 00:00:00"
+        }
+    }
+]
+```
+
 
 ## Pulling it all together with React
 
+There are multiple ways to bring react into Django. One way is to load
+a single HTML template and let React manage the frontend. Another is to
+create a django app as a standalone API and then pull React in as a
+standalone SPA. This is much more difficult as we'll need to use JWT
+for authentication.
+
+The easiest way is to mix and match, adding mini React apps inside of
+Django templates.
+
+App-like websites should use a single HTML template with
+react-router. Otherwise, go with the easiest option. Know that SEO is
+a bit more tricky with that first option too so mini React apps will
+be better when SEO is a must.
 
 
+## Setting up django REST with React
 
+Now we'll add a single django app to handle the frontend. This will be
+called `frontend`. Inside, we'll create a `src` folder to hold all of
+our important files
+
+```shell
+# assuming you're in the leads app foler
+mkdir -p src/components
+mkdir -p src/{static,templates/frontend
+```
+
+Webpack, React, etc. will be installed at the top level. This is to
+make it obvious when looking at the code repo that we're pulling in
+React JS; it makes our intentions explicit.
+
+At the top level, run the following to get started:
+
+```shell
+npm init -y
+npm i webpack webpack-cli --save-dev
+```
+
+Then we'll modify our `package.json` file, created when we initialized
+our npm project, to include scripts for making running easier:
+
+```javascript
+# ...
+  "scripts": {
+    "dev": "webpack --mode development ./project/frontend/src/index.js --output ./project/frontend/static/frontend/main.js",
+    "build": "webpack --mode production ./project/frontend/src/index.js --output  ./project/frontend/static/frontend/main.js"
+  }    
+# ...
+```
+
+Basic file operation =>  `webpack --mode <mode> ./path/to/entry_point.js ./path/to/build_point.js`
+
+[Supposedly neat
+tutorial](https://www.valentinog.com/blog/webpack-tutorial/)
+
+Now to install babel. This is for transpiling code from ECMAscript
+2015 (I think?) to plain old javascript. Then we'll pull in React and
+prop-types.
+
+```shell
+npm i @babel/core \
+    babel-loader @babel/preset-env @babel/preset-react \
+    babel-plugin-transform-class-properties --save-dev
+
+npm i react react-dom prop-types --save-dev
+```
+
+Babel uses a `.babelrc` file to configure all of our cruft. We'll need
+to create that and populate it.
+
+```javascript
+# .babelrc
+{
+    "presets": [
+        "@bable/preset-env", "@babel/preset-react"
+    ],
+    "plugins": [
+        "transform-class-properties"
+    ]
+}
+```
+
+Finally, we'll add a `webpack.config.js` file for configuring the
+babel loader.
+
+```javascript
+module.exports = {
+  module: {
+    rules: [
+      {
+        test: /\.js$/,
+        exclude: /node_modules/,
+        use: {
+          loader: "babel-loader"
+        }
+      }
+    ]
+  }
+};
+```
+
+Now we're ready to go!
+
+
+## Connecting React JS to Django Frontend
+
+To do this, we need to do a few things:
+
+  1. create our view function
+  2. create the html template being rendered
+  3. add the appropriate url to `frontend/urls.py`
+  4. wire this into our `project/urls.py`
+  5. add the app into `project/settings.py` so it knows it exists
+
+Our Django view will be expectedly simple. We'll create a
+function based view that returns the page.
+
+```python
+# frontend/views.py
+from django.shortcuts import render
+
+def index(request):
+    return render(request, "frontend/index.html")
+```
+
+We'll then create our base template within
+`frontend/templates/frontend/index.html`.
+
+```html
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Document</title>
+        <link rel="stylesheet"
+              href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.6.2/css/bulma.min.css">
+    </head>
+    <body>
+        <section class="section">
+            <div class="container">
+                <div id="app"><!-- React --></div>
+            </div>
+        </section>
+    </body>
+    {% load static %}
+    <script src="{% static 'frontend/main.js' %}"></script>
+</html> 
+```
+
+Then we add the URL to `frontend/urls.py`, which we also have to
+create.
+
+```python
+from django.urls import path
+
+from frontend import views
+
+urlpatterns = [
+    path('', views.index),
+]
+```
+
+Then we wire this into our `project/urls.py`:
+
+```python
+# ...
+urlpatterns = [
+    path('', include('leads.urls')),
+    path('', include('frontend.urls')),
+]
+```
+
+Finally, we add it to our installed apps in `project/settings.py`:
+
+```python
+# project/settings.py
+# ...
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    # ...
+    'leads.apps.LeadsConfig',
+    'frontend.apps.FrontendConfig',
+    'rest_framework'
+]
+# ...
+```
+
+Finally we'll run and see if all is well. 
+
+If you see a blank page, then you're doing great. That's because React
+is not actually hooked up doing anything (yet!)
+
+Now on to add components
+
+
+## Adding React JS Components
+
+We'll need 3 components:
+
+  1. `App.js` -- the mother component
+  2. Dataprovider for rendering stateful data
+  3. Table, a stateless component for displaying data
+
+To start, create a file call `frontend/src/components/App.js`. This
+will get populated with some standard React JS boiler plate.
+
+```javascript
+import React from "react";
+import ReactDOM from "react-dom";
+
+import DataProvider from "./DataProvider";
+import Table from "./Table";
+
+const App = () => (
+    <DataProvider endpoint="api/lead/"
+                  render={data => <Table data={data}/>} />
+);
+
+const wrapper = document.getElementById("app");
+
+wrapper ? ReactDOM.render(<App/>, wrapper) : null;
+```
+
+Now we need to create the `DataProvider` and `Table` components in
+their respetive files.
+
+To create `DataProvider`, we'll go into
+`frontend/src/component/DataProvider.js`.
+
+```javascript
+import React, { Component } from "react";
+import PropTypes from "prop-types";
+
+class DataProvider extends Component {
+    static propTypes = {
+        endpoint: PropTypes.string.isRequired,
+        render: PropTypes.func.isRequired
+    };
+
+    state = {
+        data: [],
+        loaded: false,
+        placeholder: "loading..."
+    };
+
+    componentDidMount() {
+        fetch(this.props.endpoint)
+            .then(res => {
+                if (res.status !== 200)
+                    return this.setState({
+                        placeholder: "something went wrong"
+                    });
+                else
+                    return res.json()
+            })
+            .then(data => this.setState({
+                data: data,
+                loaded: true
+            }));
+    }
+
+    render() {
+        const { data, loaded, placeholder } = this.state;
+
+        return loaded ? this.props.render(data) : <p> {placeholder}</p>;
+    }
+};
+```
+
+Then we do the same with the `Table` component in
+`frontend/src/components/Table.js`. Because the `Table` component just
+displays data propagated down onto it, we can use a function-based
+component here from React.js. Know that we'll need to install
+`weak-key` as well; this package will automatically generate keys for
+us and is safer than using built-in react js key generation.
+
+```javascript
+import React, { Component } from "react";
+import PropTypes from "prop-types";
+import key from "weak-key";  // to generate keys for us
+
+// data is passed on from the component <Table data=... />
+const Table = ({ data }) =>
+      !data.length ? (
+          <p>Nothing to show</p>
+      ) : (
+          <div className="column">
+          <h2 className="subtitle">Ze Table of {data.length} items</h2>
+            <table className="table is-striped">
+              <thead>
+                <tr>
+                  {Object.entries(data[0]).map(
+                      el => <th key={key(el)}>{el[0]}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {data.map(el => (
+                    <tr key={el.id}>
+                      {Object.entries(el).map(
+                          el => <td key={key(el)}>{el[0]}</td>)}
+                    </tr>
+                ))};
+              </tbody>
+            </table>
+          </div>
+      );
+
+Table.propTypes = {
+    data: PropTypes.array.isRequired
+};
+
+export default Table;
+```
+
+Finally, we'll add in the import statement on `index.js`, our entry
+point.
+
+```javascript
+// frontend/src/index.js
+import App from "./components/App";
+```
+
+We'll build our js file using `npm run dev` and then start our django
+dev server.
+
+Surprise! It all should work.
+
+
+## Building a form with React JS
+
+Next, we'll add a simple form in React JS for interacting with our
+django backend.
+
+This will be a component (of course) and it will live inside of
+`frontend/src/components/` as well.
+
+```javascript
+
+```
